@@ -1,0 +1,67 @@
+1.图片处理
+Begin
+Def pretreatment：
+    For I in 数据集：
+        读取图片
+        统一图片大小提取RGB值
+        转为一维数组并放在列表中
+    Im←np.array(ima).flatten
+    IM←im 得到图片数组
+End Def
+2.初始质心位置及改变量
+Begin
+Def init_centroids:
+    random生成随机的聚类中心
+    预中心坐标centroids←[0 for _ in range(n*n)]#全置0，用与与初始值做减运算
+    初始中心坐标newCentroids←ave(standard)
+    初始改变量change←newCentroids-centroids
+End Def
+3.更新中心坐标位置及改变量
+Begin
+Def update:
+    上一轮中心坐标的值赋值给现中心坐标centroids←newCentroids
+    新中心坐标newCentroids←ave(standard)
+    改变量change←newCentroids-centroids
+    清空簇standard
+End
+4.Kmeans迭代算法
+Begin
+def
+While（各簇中心改变量change！=0）:
+Do
+    For I in 图片数组IM：
+        if(该图片I到簇A的欧式距离小于到簇B和簇C):
+            将I加入到簇A中 A←I
+            记录类class记录I
+        if(该图片I到簇B的欧式距离小于到簇A和簇C):
+            将I加入到簇B中 B←I
+            记录类class记录I
+        if(该图片I到簇C的欧式距离小于到簇A和簇B):
+            将I加入到簇C中 C←I
+            记录类class记录I
+    update()更新各簇中心坐标位置及改变量       
+    打印classA，classB，classC
+End
+End def
+5.结果可视化
+Begin
+Def pic_fill:
+    填充一张空白图片
+Def pic_stitch:   #将聚类后的图片拼接在一起
+    For i in class:
+        按class中的序号读入图片
+        resize重设图片大小
+        将图片放入列表X中 X←i
+    if(该图片是该行的最后一张图片):
+        hstack对X实现行拼接
+        列表Y记录拼接后的行
+        清除行列表X
+    if(class图片数不能整除行数size):
+        行列表X填充空白图片pic_fill()
+        hstack对X实现行拼接
+        列表Y记录拼接后的行
+        清除行列表X
+    htitch<--htvstack实现列拼接
+    imshow(htitch)展示聚类后的图片
+End def
+
