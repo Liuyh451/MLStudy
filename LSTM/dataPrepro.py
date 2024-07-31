@@ -31,17 +31,24 @@ print(data.shape)
 timeseries = data[["close"]].values.astype('float32')
 train_size = int(len(timeseries) * 0.7)
 test_size = len(timeseries) - train_size
-print(train_size, test_size)
 train, test = timeseries[:train_size], timeseries[train_size:]
 print(train.shape, test.shape)
 # 判断数据集是否为张量
 is_tensor_train = torch.is_tensor(train)
-print(is_tensor_train)
+# print(is_tensor_train)
 # 把数据集转为张量
 train_tensor = torch.FloatTensor(train).view(-1, train.shape[0], 1)
 # view 方法用于对 tensor 进行重新形状（reshape），而不改变其数据,-1这个参数表示自动推断维度的大小,并将 tensor 变为三维
 test_tensor = torch.FloatTensor(test).view(-1, test.shape[0], 1)
 
 
+def MSE(Y_ture, Y_predict):
+    return ((Y_ture - Y_predict) ** 2).sum() / Y_ture.shape[0]
+
+
+# 偏方：求训练（测试）集与训练（测试）集数据的平均数之间的mse，loss值应小于这个数，即l网络的预测效果要比直接求均值好
+print("mse_train", MSE(train, train.mean()), "mse_test", MSE(test, test.mean()))
+
+
 def get_data():
-    return train_tensor, test_tensor
+    return train_tensor, test_tensor,test
