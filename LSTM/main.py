@@ -1,9 +1,10 @@
 import dataPrepro
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
 # import data from datapreprocess
-train, test,test_or = dataPrepro.get_data()
+train, test, test_or = dataPrepro.get_data()
 print(train.shape, test.shape)  # batch_size,time_step_input_dimension
 
 
@@ -41,23 +42,69 @@ input_size = 1
 hidden_size = 100
 num_layers = 5
 output_size = 1
-learning_rate = 0.1
-num_epochs = 300
+learning_rate = 0.01
+num_epochs = 1500
 # 实例化模型
 model = LSTMModel(input_size, hidden_size, num_layers, output_size)  # 实例化
 # 定义损失函数
 criterion = nn.MSELoss(reduction="mean")
 # 定义优化算法
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+# 记录训练误差和验证误差
+train_losses = []
+val_losses = []
 # 开始进行训练的循环
 for epoch in range(num_epochs):
+    #model.train()
     outputs = model(train)
     optimizer.zero_grad()  # 将梯度清0
     loss = criterion(outputs, train[:, :, :])
     loss.backward()
     optimizer.step()
-    if (epoch + 1) % 150 == 0:
+    train_losses.append(loss.item())
+    if (epoch + 1) % 100 == 0:
         print(f'Epoch[{epoch + 1}/{num_epochs}],Loss:{loss.item()}')
-print("eval", model.eval())
-test_outputs = model(test).detach().numpy()
-print(MSE(test_or, test_outputs))
+        # 验证阶段
+    #model.eval()
+    # with torch.no_grad():
+    #     val_outputs = model(val)
+    #     val_loss = criterion(val_outputs, val)
+    #     val_losses.append(val_loss.item())
+# test_outputs = model(test).detach().numpy()
+# print(MSE(test_or, test_outputs))
+# # 绘制训练误差和验证误差曲线
+# plt.plot(train_losses, label='Train Loss')
+# plt.plot(val_losses, label='Validation Loss')
+# plt.xlabel('Epochs')
+# plt.ylabel('Loss')
+# plt.legend()
+# plt.show()
+
+# 最终评估模型在测试集上的性能
+model.eval()
+with torch.no_grad():
+    test_outputs = model(test).detach().numpy()
+    test_loss = MSE(test_or, test_outputs)
+    print(f'Test Loss: {test_loss}')
+
+
+# 预测部分
+def predict(model, input_data):
+    model.eval()
+    with torch.no_grad():
+        predictions = model(input_data)
+    return predictions
+
+
+# 使用模型进行预测
+predicted_values = predict(model, test)
+
+# 转换为numpy数组并进行处理
+predicted_values = predicted_values.numpy()
+# 绘制预测结果与真实值对比图
+plt.plot(test_or.flatten(), label='True Values')
+plt.plot(predicted_values.flatten(), label='Predicted Values')
+plt.xlabel('Time Step')
+plt.ylabel('Value')
+plt.legend()
+plt.show()
