@@ -1,48 +1,28 @@
-import os
+import numpy as np
 import torch
-import matplotlib.pyplot as plt
-import torchvision.transforms as transforms
+from model import GANOptions
+from torchvision.utils import save_image
+from torch.autograd import Variable
+
 from model import Generator  # 从 models.py 导入 Generator
-
-# 超参数
-latent_dim = 100
-num_images = 16  # 生成图像的数量
-
-# 初始化生成器
+# 获取解析后的参数
+opt = GANOptions().parse()
+img_shape = (opt.channels, opt.img_size, opt.img_size)
+# 初始化生成器并加载训练好的权重
 generator = Generator()
+generator.load_state_dict(torch.load('generator.pth'))
+generator.eval()
 
-# 加载训练后的权重
-state_dict = torch.load('generator.pth', map_location=torch.device('cpu'))
-generator.load_state_dict(state_dict)
-generator.eval()  # 设置为评估模式
-
-# 创建 image 文件夹
-if not os.path.exists('image'):
-    os.makedirs('image')
-
+# 检查CUDA是否可用，并将生成器移动到CUDA设备
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+generator.to(device)
 # 生成随机噪声向量
-z = torch.randn(num_images, latent_dim)
-
-# 生成图像
-with torch.no_grad():  # 禁用梯度计算
-    generated_imgs = generator(z)
-
-# 将生成的图像转换为 [0, 1] 范围
-generated_imgs = (generated_imgs + 1) / 2.0  # 将 [-1, 1] 范围的图像值转为 [0, 1]
-
-# 将图像转换为 PIL 格式以便保存和显示
-to_pil = transforms.ToPILImage()
-
-# 显示生成的图像
-fig, axes = plt.subplots(4, 4, figsize=(8, 8))
-for i, ax in enumerate(axes.flatten()):
-    img_pil = to_pil(generated_imgs[i].cpu().squeeze(0))
-    ax.imshow(img_pil, cmap='gray')
-    ax.axis('off')
-plt.tight_layout()
-plt.show()
-
-# 保存生成的图像到 image 文件夹中
-for i in range(num_images):
-    img_pil = to_pil(generated_imgs[i].cpu().squeeze(0))
-    img_pil.save(f'image/generated_image_{i}.png')
+z = torch.randn(opt.batch_size, opt.latent_dim).to(device)
+#用下面的方式生成噪声向量z需要加上tensor=那行代码
+# cuda = True if torch.cuda.is_available() else False
+# Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
+# z = Variable(Tensor(np.random.normal(0, 1, (opt.batch_size, opt.latent_dim))))
+# 生成假图像
+with torch.no_grad():  # 不需要计算梯度
+    gen_imgs = generator(z)
+save_image(gen_imgs.data[:25], "images/A.png" , nrow=5, normalize=True)

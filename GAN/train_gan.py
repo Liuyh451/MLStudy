@@ -1,107 +1,111 @@
+import argparse
+import os
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torchvision import datasets, transforms
+from model import Generator, Discriminator,GANOptions
 from torch.utils.data import DataLoader
+import torchvision.transforms as transforms
+import numpy as np
+from torchvision import datasets
+from torch.autograd import Variable
+# 获取解析后的参数
+opt = GANOptions().parse()
+os.makedirs("images", exist_ok=True)
+print(opt)
+img_shape = (opt.channels, opt.img_size, opt.img_size)
 
-# 超参数
-batch_size = 64
-lr = 0.0002
-epochs = 10
-latent_dim = 100
+cuda = True if torch.cuda.is_available() else False
+# Loss function
+adversarial_loss = torch.nn.BCELoss()
 
-# 数据预处理和加载
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5,), (0.5,))
-])
-
-train_dataset = datasets.MNIST(root='./data', train=True, transform=transform, download=True)
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-# 生成器模型
-class Generator(nn.Module):
-    def __init__(self):
-        super(Generator, self).__init__()
-        self.model = nn.Sequential(
-            nn.Linear(latent_dim, 256),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, 512),
-            nn.ReLU(inplace=True),
-            nn.Linear(512, 1024),
-            nn.ReLU(inplace=True),
-            nn.Linear(1024, 28 * 28),
-            nn.Tanh()
-        )
-
-    def forward(self, z):
-        img = self.model(z)
-        img = img.view(img.size(0), 1, 28, 28)
-        return img
-
-# 判别器模型
-class Discriminator(nn.Module):
-    def __init__(self):
-        super(Discriminator, self).__init__()
-        self.model = nn.Sequential(
-            nn.Linear(28 * 28, 512),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(256, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, img):
-        img_flat = img.view(img.size(0), -1)
-        validity = self.model(img_flat)
-        return validity
-
-# 初始化模型
+# Initialize generator and discriminator
 generator = Generator()
 discriminator = Discriminator()
 
-# 损失函数
-adversarial_loss = nn.BCELoss()
+if cuda:
+    generator.cuda()
+    discriminator.cuda()
+    adversarial_loss.cuda()
 
-# 优化器
-optimizer_G = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999))
-optimizer_D = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
+# Configure data loader
+os.makedirs("./data/mnist", exist_ok=True)
+# 创建 DataLoader 实例
+dataloader = torch.utils.data.DataLoader(
+    datasets.MNIST(
+        "./data/mnist",  # 数据集存储路径
+        train=True,  # 是否加载训练集
+        download=True,  # 如果数据集不存在，则下载
+        transform=transforms.Compose(  # 数据预处理
+            [
+                transforms.Resize(opt.img_size),  # 调整图像大小
+                transforms.ToTensor(),  # 转换为 Tensor
+                transforms.Normalize([0.5], [0.5])  # 归一化
+            ]
+        ),
+    ),
+    batch_size=opt.batch_size,  # 每个批次的样本数量
+    shuffle=True,  # 是否打乱数据
+)
 
-# 训练循环
-for epoch in range(epochs):
-    for i, (imgs, _) in enumerate(train_loader):
+# Optimizers
+optimizer_G = torch.optim.Adam(generator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+optimizer_D = torch.optim.Adam(discriminator.parameters(), lr=opt.lr, betas=(opt.b1, opt.b2))
+# b1，一阶矩估计指的是对梯度的均值进行估计。它类似于动量优化中的动量项，用于平滑梯度的变化，并减少震荡
+# b2，二阶矩估计指的是对梯度的方差（或平方）进行估计。它用于调整每个参数的学习率，以避免学习率过高或过低
 
-        # 真实图像
-        real_imgs = imgs
-        real_labels = torch.ones(imgs.size(0), 1)
+Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
-        # 噪声
-        z = torch.randn(imgs.size(0), latent_dim)
-        fake_labels = torch.zeros(imgs.size(0), 1)
+# ----------
+#  Training
+# ----------
 
-        # 生成假图像
-        fake_imgs = generator(z)
+for epoch in range(opt.n_epochs):
+    #dataloader 提供了批量的训练数据，每批数据包含图片 imgs 和标签 _（标签在这里未被使用）
+    for i, (imgs, _) in enumerate(dataloader):
+        # Adversarial ground truths，定义真实和虚假的标签
+        # Variable 用于包装张量，使其可以用于计算图梯度。requires_grad=False 表示这些张量不会计算梯度，老版本的torch代码
+        # 下面有新版本的代码
+        valid = Variable(Tensor(imgs.size(0), 1).fill_(1.0), requires_grad=False)
+        # 这行代码的目的是创建一个形状为 [batch_size, 1] 的张量，并用值 1.0 填充整个张量。张量的所有元素都将是 1.0。
+        fake = Variable(Tensor(imgs.size(0), 1).fill_(0.0), requires_grad=False)
+        # Configure input
+        real_imgs = Variable(imgs.type(Tensor))
 
-        # 训练判别器
-        optimizer_D.zero_grad()
-        real_loss = adversarial_loss(discriminator(real_imgs), real_labels)
-        fake_loss = adversarial_loss(discriminator(fake_imgs.detach()), fake_labels)
-        d_loss = real_loss + fake_loss
-        d_loss.backward()
-        optimizer_D.step()
+        # -----------------
+        #  Train Generator
+        # -----------------
 
-        # 训练生成器
         optimizer_G.zero_grad()
-        g_loss = adversarial_loss(discriminator(fake_imgs), real_labels)
+
+        # Sample noise as generator input
+        z = Variable(Tensor(np.random.normal(0, 1, (imgs.shape[0], opt.latent_dim))))
+
+        # Generate a batch of images
+        gen_imgs = generator(z)
+
+        # Loss measures generator's ability to fool the discriminator
+        g_loss = adversarial_loss(discriminator(gen_imgs), valid)
+
         g_loss.backward()
         optimizer_G.step()
 
-        # 打印进度
-        if i % 100 == 0:
-            print(f"Epoch [{epoch}/{epochs}] Batch {i}/{len(train_loader)} \
-                  Loss D: {d_loss.item():.4f}, loss G: {g_loss.item():.4f}")
+        # ---------------------
+        #  Train Discriminator
+        # ---------------------
 
+        optimizer_D.zero_grad()
+
+        # Measure discriminator's ability to classify real from generated samples
+        real_loss = adversarial_loss(discriminator(real_imgs), valid)
+        fake_loss = adversarial_loss(discriminator(gen_imgs.detach()), fake)
+        d_loss = (real_loss + fake_loss) / 2
+
+        d_loss.backward()
+        optimizer_D.step()
+
+        print(
+            "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]"
+            % (epoch, opt.n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
+        )
 # 保存模型
 torch.save(generator.state_dict(), 'generator.pth')
 torch.save(discriminator.state_dict(), 'discriminator.pth')
