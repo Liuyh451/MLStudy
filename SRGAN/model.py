@@ -1,9 +1,7 @@
 #! /usr/bin/python
 # -*- coding: utf8 -*-
 
-#import tensorflow as tf
-import tensorflow.compat.v1 as tf
-tf.disable_v2_behavior()
+import tensorflow as tf
 import tensorlayer as tl
 from tensorlayer.layers import *
 import time

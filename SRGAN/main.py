@@ -58,11 +58,13 @@ def train():
 
     ###========================== DEFINE MODEL ============================###
     ## train inference
+    #tf.placeholder 占位符，相当于int x，规定了x的参数，但是暂时没有对x赋值
     t_image = tf.placeholder('float32', [batch_size, 96, 96, 3], name='t_image_input_to_SRGAN_generator')
     t_target_image = tf.placeholder('float32', [batch_size, 384, 384, 3], name='t_target_image')
 
     net_g = SRGAN_g(t_image, is_train=True, reuse=False)
     net_d, logits_real = SRGAN_d(t_target_image, is_train=True, reuse=False)
+    #logits_fake 表示判别器认为这些图像是假的（生成的）概率或分数。
     _, logits_fake = SRGAN_d(net_g.outputs, is_train=True, reuse=True)
 
     net_g.print_params(False)
@@ -71,24 +73,32 @@ def train():
     net_d.print_layers()
 
     ## vgg inference. 0, 1, 2, 3 BILINEAR NEAREST BICUBIC AREA
+    #对图像进行调整以满足vgg的要求
     t_target_image_224 = tf.image.resize_images(
         t_target_image, size=[224, 224], method=0,
         align_corners=False)  # resize_target_image_for_vgg # http://tensorlayer.readthedocs.io/en/latest/_modules/tensorlayer/layers.html#UpSampling2dLayer
     t_predict_image_224 = tf.image.resize_images(net_g.outputs, size=[224, 224], method=0, align_corners=False)  # resize_generate_image_for_vgg
-
+    # 构建 VGG19 网络（net_vgg）并获取目标图像的特征嵌入（vgg_target_emb）
+    # t_target_image_224 的像素值范围从 [-1, 1] 转换为 [0, 1]
     net_vgg, vgg_target_emb = Vgg19_simple_api((t_target_image_224 + 1) / 2, reuse=False)
+
+    # 复用已经构建的 VGG19 网络，并获取预测图像的特征嵌入
+    # t_predict_image_224 的像素值范围从 [-1, 1] 转换为 [0, 1]
     _, vgg_predict_emb = Vgg19_simple_api((t_predict_image_224 + 1) / 2, reuse=True)
+
 
     ## test inference
     net_g_test = SRGAN_g(t_image, is_train=False, reuse=True)
 
     # ###========================== DEFINE TRAIN OPS ==========================###
+    #定义损失函数
     d_loss1 = tl.cost.sigmoid_cross_entropy(logits_real, tf.ones_like(logits_real), name='d1')
     d_loss2 = tl.cost.sigmoid_cross_entropy(logits_fake, tf.zeros_like(logits_fake), name='d2')
     d_loss = d_loss1 + d_loss2
 
     g_gan_loss = 1e-3 * tl.cost.sigmoid_cross_entropy(logits_fake, tf.ones_like(logits_fake), name='g')
     mse_loss = tl.cost.mean_squared_error(net_g.outputs, t_target_image, is_mean=True)
+    #vgg预测和真实特征之间的loss
     vgg_loss = 2e-6 * tl.cost.mean_squared_error(vgg_predict_emb.outputs, vgg_target_emb.outputs, is_mean=True)
 
     g_loss = mse_loss + vgg_loss + g_gan_loss
