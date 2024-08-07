@@ -45,6 +45,7 @@ def train():
     valid_lr_img_list = sorted(tl.files.load_file_list(path=config.VALID.lr_img_path, regx='.*.png', printable=False))[:50]
 
     ## If your machine have enough memory, please pre-load the whole train set.
+    #加载高清数据集
     train_hr_imgs = tl.vis.read_images(train_hr_img_list, path=config.TRAIN.hr_img_path, n_threads=8)
     # for im in train_hr_imgs:
     #     print(im.shape)
@@ -109,14 +110,19 @@ def train():
     with tf.variable_scope('learning_rate'):
         lr_v = tf.Variable(lr_init, trainable=False)
     ## Pretrain
+    #AdamOptimizer，返回adm优化器；对其进行minimize，创建用于最小化损失的优化操作，所以g_optim这些变量都是一些tensorflow的操作。
+    #调用时会对g_vars根据梯度自动执行最小化损失操作
     g_optim_init = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(mse_loss, var_list=g_vars)
     ## SRGAN
     g_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(g_loss, var_list=g_vars)
     d_optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(d_loss, var_list=d_vars)
 
     ###========================== RESTORE MODEL =============================###
+    # 创建 TensorFlow 会话，允许软设备放置（选择cpu or gpu），禁止设备输出日志
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
+    #初始化 TensorFlow 全局变量通常指的是模型的所有参数，这些参数包括权重矩阵、偏置向量以及其他可以训练的参数，目的是为这些变量赋予初始值，通常是随机值或零值
     tl.layers.initialize_global_variables(sess)
+    #尝试从指定路径加载生成器 net_g 的参数。如果加载失败，则执行 if 语句内的代码块
     if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}.npz'.format(tl.global_flag['mode']), network=net_g) is False:
         tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}_init.npz'.format(tl.global_flag['mode']), network=net_g)
     tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/d_{}.npz'.format(tl.global_flag['mode']), network=net_d)
@@ -129,6 +135,7 @@ def train():
     npz = np.load(vgg19_npy_path, encoding='latin1').item()
 
     params = []
+    #从vgg中加载参数
     for val in sorted(npz.items()):
         W = np.asarray(val[1][0])
         b = np.asarray(val[1][1])
@@ -143,25 +150,28 @@ def train():
     ## use first `batch_size` of train set to have a quick test during training
     sample_imgs = train_hr_imgs[0:batch_size]
     # sample_imgs = tl.vis.read_images(train_hr_img_list[0:batch_size], path=config.TRAIN.hr_img_path, n_threads=32) # if no pre-load train set
+    #对初始hr图像进行预处理，用crop_sub_imgs_fn函数裁剪成384*384的并且进行归一化
     sample_imgs_384 = tl.prepro.threading_data(sample_imgs, fn=crop_sub_imgs_fn, is_random=False)
     print('sample HR sub-image:', sample_imgs_384.shape, sample_imgs_384.min(), sample_imgs_384.max())
+    #对上面得到的图像进行下采样
     sample_imgs_96 = tl.prepro.threading_data(sample_imgs_384, fn=downsample_fn)
     print('sample LR sub-image:', sample_imgs_96.shape, sample_imgs_96.min(), sample_imgs_96.max())
+    #保存图片，就是做个展示，图片是啥样的
     tl.vis.save_images(sample_imgs_96, [ni, ni], save_dir_ginit + '/_train_sample_96.png')
     tl.vis.save_images(sample_imgs_384, [ni, ni], save_dir_ginit + '/_train_sample_384.png')
     tl.vis.save_images(sample_imgs_96, [ni, ni], save_dir_gan + '/_train_sample_96.png')
     tl.vis.save_images(sample_imgs_384, [ni, ni], save_dir_gan + '/_train_sample_384.png')
 
     ###========================= initialize G ====================###
-    ## fixed learning rate
+    ## fixed learning rate sess.run(tf.assign(lr_v, lr_init)) 会执行 tf.assign 操作，将 lr_v 的值更新为 lr_init
+    #固定学习率为了简化训练过程和避免复杂的学习率调度
     sess.run(tf.assign(lr_v, lr_init))
     print(" ** fixed learning rate: %f (for init G)" % lr_init)
     for epoch in range(0, n_epoch_init + 1):
         epoch_time = time.time()
         total_mse_loss, n_iter = 0, 0
 
-        ## If your machine cannot load all images into memory, you should use
-        ## this one to load batch of images while training.
+        ## 如果你的机器无法将所有图像加载到内存中，你应该使用这个方法在训练时加载图像批次
         # random.shuffle(train_hr_img_list)
         # for idx in range(0, len(train_hr_img_list), batch_size):
         #     step_time = time.time()
@@ -171,13 +181,19 @@ def train():
         #     b_imgs_96 = tl.prepro.threading_data(b_imgs_384, fn=downsample_fn)
 
         ## If your machine have enough memory, please pre-load the whole train set.
+        '''
+        这部分是进行梯度优化
+        '''
         for idx in range(0, len(train_hr_imgs), batch_size):
             step_time = time.time()
+            #同上，裁剪两种尺寸的图片
             b_imgs_384 = tl.prepro.threading_data(train_hr_imgs[idx:idx + batch_size], fn=crop_sub_imgs_fn, is_random=True)
             b_imgs_96 = tl.prepro.threading_data(b_imgs_384, fn=downsample_fn)
             ## update G
+            #根据定义的损失函数和优化操作返回损失值的列表
             errM, _ = sess.run([mse_loss, g_optim_init], {t_image: b_imgs_96, t_target_image: b_imgs_384})
             print("Epoch [%2d/%2d] %4d time: %4.4fs, mse: %.8f " % (epoch, n_epoch_init, n_iter, time.time() - step_time, errM))
+            #计算总损失值
             total_mse_loss += errM
             n_iter += 1
         log = "[*] Epoch: [%2d/%2d] time: %4.4fs, mse: %.8f" % (epoch, n_epoch_init, time.time() - epoch_time, total_mse_loss / n_iter)
@@ -194,6 +210,12 @@ def train():
             tl.files.save_npz(net_g.all_params, name=checkpoint_dir + '/g_{}_init.npz'.format(tl.global_flag['mode']), sess=sess)
 
     ###========================= train GAN (SRGAN) =========================###
+    '''
+        功能：这部分是进行学习率衰减
+        参数：这里 lr_init 是初始学习率，
+        decay_every 是学习率调整的周期（每隔多少个 epoch 调整一次），
+        lr_decay 是学习率衰减因子（每次调整时的衰减倍数）。
+    '''
     for epoch in range(0, n_epoch + 1):
         ## update learning rate
         if epoch != 0 and (epoch % decay_every == 0):
@@ -220,6 +242,9 @@ def train():
         #     b_imgs_96 = tl.prepro.threading_data(b_imgs_384, fn=downsample_fn)
 
         ## If your machine have enough memory, please pre-load the whole train set.
+        """
+        这部分是计算dloss，gloss，mloss，vloss，aloss，以及总loss
+        """
         for idx in range(0, len(train_hr_imgs), batch_size):
             step_time = time.time()
             b_imgs_384 = tl.prepro.threading_data(train_hr_imgs[idx:idx + batch_size], fn=crop_sub_imgs_fn, is_random=True)
@@ -239,6 +264,10 @@ def train():
         print(log)
 
         ## quick evaluation on train set
+        """
+               每隔10轮评估一次模型。net_g_test是上面定义的专门用来评估G生成器的接口，并把输出的图片保存
+               每隔10轮保存一次模型
+        """
         if (epoch != 0) and (epoch % 10 == 0):
             out = sess.run(net_g_test.outputs, {t_image: sample_imgs_96})  #; print('gen sub-image:', out.shape, out.min(), out.max())
             print("[*] save images")
@@ -256,16 +285,10 @@ def evaluate():
     tl.files.exists_or_mkdir(save_dir)
     checkpoint_dir = "checkpoint"
 
-    ###====================== PRE-LOAD DATA ===========================###
-    # train_hr_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.hr_img_path, regx='.*.png', printable=False))
-    # train_lr_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.lr_img_path, regx='.*.png', printable=False))
+    #加载测试集
     valid_hr_img_list = sorted(tl.files.load_file_list(path=config.VALID.hr_img_path, regx='.*.png', printable=False))
     valid_lr_img_list = sorted(tl.files.load_file_list(path=config.VALID.lr_img_path, regx='.*.png', printable=False))
 
-    ## If your machine have enough memory, please pre-load the whole train set.
-    # train_hr_imgs = tl.vis.read_images(train_hr_img_list, path=config.TRAIN.hr_img_path, n_threads=32)
-    # for im in train_hr_imgs:
-    #     print(im.shape)
     valid_lr_imgs = tl.vis.read_images(valid_lr_img_list, path=config.VALID.lr_img_path, n_threads=8)
     # for im in valid_lr_imgs:
     #     print(im.shape)
@@ -275,6 +298,7 @@ def evaluate():
     # exit()
 
     ###========================== DEFINE MODEL ============================###
+    #imid就是模型用来生成的图片编号
     imid = 64  # 0: 企鹅  81: 蝴蝶 53: 鸟  64: 古堡
     valid_lr_img = valid_lr_imgs[imid]
     valid_hr_img = valid_hr_imgs[imid]
@@ -284,10 +308,9 @@ def evaluate():
 
     size = valid_lr_img.shape
     # t_image = tf.placeholder('float32', [None, size[0], size[1], size[2]], name='input_image') # the old version of TL need to specify the image size
+    #常规步骤，占位符===>实例化网络===>开始会话===>初始化参数===>加载模型
     t_image = tf.placeholder('float32', [1, None, None, 3], name='input_image')
-
     net_g = SRGAN_g(t_image, is_train=False, reuse=False)
-
     ###========================== RESTORE G =============================###
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
     tl.layers.initialize_global_variables(sess)
